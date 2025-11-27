@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,10 +25,26 @@ class AccountRead(AccountBase):
         orm_mode = True
 
 
+AllowedService = Literal[
+    "FIP",  # FedEx International Priority
+    "IPE",  # FedEx International Priority Express
+    "FIE",  # FedEx International Economy
+    "RE",  # FedEx Regional Economy
+    "PO",  # FedEx Priority Overnight
+    "FICP",  # FedEx International Connect Plus
+    "IPF",  # FedEx International Priority Freight
+    "IEF",  # FedEx International Economy Freight
+    "REF",  # FedEx Regional Economy Freight
+]
+
+
 class ShipmentBase(BaseModel):
     order_reference: str
     account_id: int
-    service_type: str = Field(..., description="fedex_standard or fedex_freight")
+    service_type: AllowedService = Field(
+        ...,
+        description="FedEx service code (FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF)",
+    )
     recipient_name: str
     recipient_address: str
     recipient_city: str
@@ -55,7 +71,7 @@ class ShipmentRead(ShipmentBase):
 
 class RateRequest(BaseModel):
     account_id: int
-    service_type: str = Field(..., description="fedex_standard or fedex_freight")
+    service_type: AllowedService
     weight_kg: float
     destination_country: str
 

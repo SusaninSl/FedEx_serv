@@ -52,7 +52,8 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
             api_key=account.api_key,
             api_secret=account.api_secret,
             is_freight=account.is_freight,
-        )
+        ),
+        db,
     )
     quote = client.get_rate(
         weight_kg=rate_request.weight_kg,
@@ -79,10 +80,15 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
             api_key=account.api_key,
             api_secret=account.api_secret,
             is_freight=account.is_freight,
-        )
+        ),
+        db,
     )
 
-    rate = client.get_rate(weight_kg=order.weight_kg, destination_country=order.recipient_country, service_type=order.service_type)
+    rate = client.get_rate(
+        weight_kg=order.weight_kg,
+        destination_country=order.recipient_country,
+        service_type=order.service_type,
+    )
 
     shipment = Shipment(
         order_reference=order.order_reference,
@@ -105,6 +111,13 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
         shipment_id=shipment.id,
         destination=f"{shipment.recipient_city}, {shipment.recipient_country}",
         service_type=order.service_type,
+        recipient={
+            "name": shipment.recipient_name,
+            "address": shipment.recipient_address,
+            "city": shipment.recipient_city,
+            "country": shipment.recipient_country,
+            "weight": shipment.weight_kg,
+        },
     )
 
     shipment.tracking_number = tracking_number

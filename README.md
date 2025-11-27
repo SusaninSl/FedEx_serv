@@ -1,6 +1,6 @@
 # FedEx Shipment Gateway
 
-Невеликий сервіс на FastAPI для створення відправок у FedEx (звичайна та фрахт), підтримки кількох акаунтів, збереження PDF-етикеток та отримання попередніх тарифів.
+Невеликий сервіс на FastAPI для створення відправок у FedEx (звичайна та фрахт), підтримки кількох акаунтів, збереження PDF-етикеток та отримання попередніх тарифів. Інтеграція використовує публічні FedEx API (`/oauth/token`, `/rate/v1/rates/quotes`, `/ship/v1/shipments`) та зберігає кожен зовнішній запит і відповідь у БД.
 
 ## Можливості
 - Реєстрація декількох облікових записів FedEx/FedEx Freight.
@@ -8,6 +8,7 @@
 - Генерація PDF-етикеток та збереження їх у `storage/labels`.
 - Повернення трек-номеру та оцінки вартості під час створення відправлення.
 - Токен-автентифікація через query-параметр `token`.
+- Логування кожного HTTP-звернення до FedEx (запит/відповідь, статус-код) у таблицю `api_logs`.
 
 ## Запуск
 1. Створіть віртуальне середовище та встановіть залежності:
@@ -20,6 +21,7 @@
    ```bash
    export SERVICE_TOKEN=super-secret-token
    export DATABASE_URL=sqlite:///$(pwd)/data/app.db
+   export FEDEX_BASE_URL=https://apis-sandbox.fedex.com
    ```
 3. Запустіть сервер:
    ```bash
@@ -47,9 +49,9 @@
     -H "Content-Type: application/json" \
     -d '{
       "account_id": 1,
-      "service_type": "fedex_standard",
+      "service_type": "FIP",
       "weight_kg": 3.5,
-      "destination_country": "USA"
+      "destination_country": "DE"
     }'
   ```
 
@@ -60,11 +62,11 @@
     -d '{
       "order_reference": "ORDER-1",
       "account_id": 1,
-      "service_type": "fedex_standard",
+      "service_type": "FIP",
       "recipient_name": "John Doe",
       "recipient_address": "1 Market St",
-      "recipient_city": "San Francisco",
-      "recipient_country": "USA",
+      "recipient_city": "Berlin",
+      "recipient_country": "DE",
       "weight_kg": 3.5
     }'
   ```
@@ -75,5 +77,7 @@
   ```
 
 ## Примітки
-- Реалізація FedEx інтеграції емульована: тариф і трек-номер генеруються всередині сервісу. Це дає можливість замінити `FedExClient` реальними API-викликами без зміни API сервісу.
+- Запит авторизації виконується на `/oauth/token` (grant_type=client_credentials); отриманий токен автоматично кешується.
+- Тарифи беруться з `/rate/v1/rates/quotes`, створення відправки — через `/ship/v1/shipments` із PDF-етикеткою (base64) та збереженням у `storage/labels`.
+- Усі дозволені сервіси: FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF.
 - Дані зберігаються у SQLite, тому резервуйте файл `data/app.db` при продакшн-розгортанні.

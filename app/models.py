@@ -40,3 +40,16 @@ class Shipment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     account = relationship("Account", back_populates="shipments")
+
+
+class ApiLog(Base):
+    __tablename__ = "api_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+    endpoint = Column(String(255), nullable=False)
+    method = Column(String(10), nullable=False)
+    request_payload = Column(Text, nullable=True)
+    response_payload = Column(Text, nullable=True)
+    status_code = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
