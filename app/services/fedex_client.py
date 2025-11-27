@@ -50,7 +50,7 @@ class FedExAccount:
 @dataclass
 class RateQuote:
     amount: float
-    currency: str = "USD"
+    currency: str = "EUR"
 
 
 class FedExClient:
@@ -127,8 +127,8 @@ class FedExClient:
             "requestedShipment": {
                 "shipper": {
                     "address": {
-                        "postalCode": "10001",
-                        "countryCode": "US",
+                        "postalCode": "03042",
+                        "countryCode": "DE",
                     }
                 },
                 "recipient": {
@@ -185,11 +185,10 @@ class FedExClient:
                 "shipper": {
                     "contact": {"personName": self.account.name},
                     "address": {
-                        "streetLines": ["123 Sender St"],
-                        "city": "New York",
-                        "stateOrProvinceCode": "NY",
-                        "postalCode": "10001",
-                        "countryCode": "US",
+                        "streetLines": ["Merzdorfer Weg 4"],
+                        "city": "Cottbus",
+                        "postalCode": "03042",
+                        "countryCode": "DE",
                     },
                 },
                 "recipients": [
