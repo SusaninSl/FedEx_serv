@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app import schemas
 from app.config import get_service_token
 from app.database import engine, get_db
-from app.models import Account, Base, Shipment
+from app.models import Account, Base, Shipment, Shipper
 from app.services.fedex_client import FedExAccount, FedExClient
 
 Base.metadata.create_all(bind=engine)
@@ -40,9 +40,31 @@ def _get_account(db: Session, account_id: int) -> Account:
     return account
 
 
+@app.post("/shippers", response_model=schemas.ShipperRead, dependencies=[Depends(require_token)])
+def create_shipper(shipper: schemas.ShipperCreate, db: Session = Depends(get_db)):
+    db_shipper = Shipper(**shipper.dict())
+    db.add(db_shipper)
+    db.commit()
+    db.refresh(db_shipper)
+    return db_shipper
+
+
+@app.get("/shippers", response_model=list[schemas.ShipperRead], dependencies=[Depends(require_token)])
+def list_shippers(db: Session = Depends(get_db)):
+    return db.query(Shipper).order_by(Shipper.created_at.desc()).all()
+
+
+def _get_shipper(db: Session, shipper_id: int) -> Shipper:
+    shipper = db.query(Shipper).filter(Shipper.id == shipper_id).first()
+    if not shipper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shipper not found")
+    return shipper
+
+
 @app.post("/rates", response_model=schemas.RateResponse, dependencies=[Depends(require_token)])
 def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
     account = _get_account(db, rate_request.account_id)
+    shipper = _get_shipper(db, rate_request.shipper_id)
     client = FedExClient(
         FedExAccount(
             id=account.id,
@@ -57,6 +79,7 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
     )
     quote = client.get_rate(
         weight_kg=rate_request.weight_kg,
+        shipper=shipper,
         destination_country=rate_request.destination_country,
         service_type=rate_request.service_type,
     )
@@ -71,6 +94,7 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
 @app.post("/orders", response_model=schemas.ShipmentRead, dependencies=[Depends(require_token)])
 def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)):
     account = _get_account(db, order.account_id)
+    shipper = _get_shipper(db, order.shipper_id)
     client = FedExClient(
         FedExAccount(
             id=account.id,
@@ -86,6 +110,7 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
 
     rate = client.get_rate(
         weight_kg=order.weight_kg,
+        shipper=shipper,
         destination_country=order.recipient_country,
         service_type=order.service_type,
     )
@@ -93,10 +118,16 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
     shipment = Shipment(
         order_reference=order.order_reference,
         account_id=account.id,
+        shipper_id=shipper.id,
         service_type=order.service_type,
         recipient_name=order.recipient_name,
+        recipient_company=order.recipient_company,
+        recipient_phone=order.recipient_phone,
+        recipient_email=order.recipient_email,
         recipient_address=order.recipient_address,
         recipient_city=order.recipient_city,
+        recipient_state_code=order.recipient_state_code,
+        recipient_postal_code=order.recipient_postal_code,
         recipient_country=order.recipient_country,
         weight_kg=order.weight_kg,
         price_quote=rate.amount,
@@ -113,11 +144,17 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
         service_type=order.service_type,
         recipient={
             "name": shipment.recipient_name,
+            "company": shipment.recipient_company,
+            "phone": shipment.recipient_phone,
+            "email": shipment.recipient_email,
             "address": shipment.recipient_address,
             "city": shipment.recipient_city,
+            "state_code": shipment.recipient_state_code,
+            "postal_code": shipment.recipient_postal_code,
             "country": shipment.recipient_country,
             "weight": shipment.weight_kg,
         },
+        shipper=shipper,
     )
 
     shipment.tracking_number = tracking_number

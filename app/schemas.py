@@ -41,13 +41,19 @@ AllowedService = Literal[
 class ShipmentBase(BaseModel):
     order_reference: str
     account_id: int
+    shipper_id: int
     service_type: AllowedService = Field(
         ...,
         description="FedEx service code (FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF)",
     )
     recipient_name: str
+    recipient_company: Optional[str] = None
+    recipient_phone: str
+    recipient_email: Optional[str] = None
     recipient_address: str
     recipient_city: str
+    recipient_state_code: str
+    recipient_postal_code: str
     recipient_country: str
     weight_kg: float
 
@@ -63,6 +69,7 @@ class ShipmentRead(ShipmentBase):
     label_path: str
     status: str
     created_at: datetime
+    shipper: "ShipperRead"
     account: AccountRead
 
     class Config:
@@ -71,6 +78,7 @@ class ShipmentRead(ShipmentBase):
 
 class RateRequest(BaseModel):
     account_id: int
+    shipper_id: int
     service_type: AllowedService
     weight_kg: float
     destination_country: str
@@ -86,3 +94,31 @@ class RateResponse(BaseModel):
 class PaginatedShipments(BaseModel):
     items: List[ShipmentRead]
     total: int
+
+
+class ShipperBase(BaseModel):
+    name: str
+    company: Optional[str] = None
+    person_name: str
+    phone_number: str
+    email: Optional[str] = None
+    street_lines: str = Field(..., description="Street lines separated by commas if multiple")
+    city: str
+    state_code: str
+    postal_code: str
+    country_code: str
+
+
+class ShipperCreate(ShipperBase):
+    pass
+
+
+class ShipperRead(ShipperBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+ShipmentRead.update_forward_refs()

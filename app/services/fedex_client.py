@@ -118,19 +118,34 @@ class FedExClient:
             "Accept": "application/json",
         }
 
-    def get_rate(self, weight_kg: float, destination_country: str, service_type: ServiceType) -> RateQuote:
+    def _shipper_address(self, shipper) -> dict:
+        return {
+            "contact": {
+                "personName": shipper.person_name,
+                "companyName": shipper.company,
+                "phoneNumber": shipper.phone_number,
+                "emailAddress": shipper.email,
+            },
+            "address": {
+                "streetLines": [line.strip() for line in shipper.street_lines.split(",") if line.strip()],
+                "city": shipper.city,
+                "stateOrProvinceCode": shipper.state_code,
+                "postalCode": shipper.postal_code,
+                "countryCode": shipper.country_code,
+            },
+        }
+
+    def _shipper_object(self, shipper) -> dict:
+        return self._shipper_address(shipper)
+
+    def get_rate(self, weight_kg: float, shipper, destination_country: str, service_type: ServiceType) -> RateQuote:
         if service_type not in SERVICE_TYPE_MAP:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
 
         body = {
             "accountNumber": {"value": self.account.account_number},
             "requestedShipment": {
-                "shipper": {
-                    "address": {
-                        "postalCode": "03042",
-                        "countryCode": "DE",
-                    }
-                },
+                "shipper": self._shipper_address(shipper),
                 "recipient": {
                     "address": {
                         "countryCode": destination_country,
@@ -175,28 +190,35 @@ class FedExClient:
 
         return RateQuote(amount=amount, currency=currency)
 
-    def create_shipment(self, shipment_id: int, destination: str, service_type: ServiceType, recipient: dict) -> tuple[str, str]:
+    def create_shipment(
+        self,
+        shipment_id: int,
+        destination: str,
+        service_type: ServiceType,
+        recipient: dict,
+        shipper,
+    ) -> tuple[str, str]:
         if service_type not in SERVICE_TYPE_MAP:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
 
         body = {
             "labelResponseOptions": "LABEL",
+            "mergeLabelDocOption": "LABELS_ONLY",
             "requestedShipment": {
-                "shipper": {
-                    "contact": {"personName": self.account.name},
-                    "address": {
-                        "streetLines": ["Merzdorfer Weg 4"],
-                        "city": "Cottbus",
-                        "postalCode": "03042",
-                        "countryCode": "DE",
-                    },
-                },
+                "shipper": self._shipper_object(shipper),
                 "recipients": [
                     {
-                        "contact": {"personName": recipient.get("name")},
+                        "contact": {
+                            "personName": recipient.get("name"),
+                            "companyName": recipient.get("company"),
+                            "phoneNumber": recipient.get("phone"),
+                            "emailAddress": recipient.get("email"),
+                        },
                         "address": {
                             "streetLines": [recipient.get("address")],
                             "city": recipient.get("city"),
+                            "stateOrProvinceCode": recipient.get("state_code"),
+                            "postalCode": recipient.get("postal_code"),
                             "countryCode": recipient.get("country"),
                         },
                     }
@@ -210,6 +232,7 @@ class FedExClient:
                 },
                 "labelSpecification": {
                     "imageType": "PDF",
+                    "labelFormatType": "COMMON2D",
                     "labelStockType": "PAPER_4X6",
                 },
                 "requestedPackageLineItems": [
