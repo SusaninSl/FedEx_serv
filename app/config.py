@@ -7,7 +7,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
-LABEL_DIR = BASE_DIR / "storage" / "labels"
+LABEL_DIR = BASE_DIR / "labels"
 LOG_DIR = BASE_DIR / "storage" / "logs"
 FEDEX_BASE_URL = os.getenv("FEDEX_BASE_URL", "https://apis-sandbox.fedex.com")
 
