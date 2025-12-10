@@ -50,7 +50,7 @@ class FedExAccount:
 @dataclass
 class RateQuote:
     amount: float
-    currency: str = "USD"
+    currency: str = "EUR"
 
 
 class FedExClient:
