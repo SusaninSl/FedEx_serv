@@ -150,7 +150,6 @@ class FedExClient:
 
         body = {
             "accountNumber": {"value": self.account.account_number},
-            "rateRequestType": ["ACCOUNT"],
             "requestedShipment": {
                 "shipper": self._shipper_address(shipper),
                 "recipient": {
@@ -164,6 +163,7 @@ class FedExClient:
                 },
                 "serviceType": SERVICE_TYPE_MAP[service_type],
                 "pickupType": "USE_SCHEDULED_PICKUP",
+                "rateRequestType": ["ACCOUNT", "LIST"],
                 "requestedPackageLineItems": [
                     {
                         "weight": {
@@ -213,6 +213,7 @@ class FedExClient:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
 
         body = {
+            "accountNumber": {"value": self.account.account_number},
             "labelResponseOptions": "LABEL",
             "mergeLabelDocOption": "LABELS_ONLY",
             "requestedShipment": {
