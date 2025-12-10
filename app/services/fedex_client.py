@@ -154,9 +154,6 @@ class FedExClient:
                 "shipper": self._shipper_address(shipper),
                 "recipient": {
                     "address": {
-                        "streetLines": [recipient.get("address")],
-                        "city": recipient.get("city"),
-                        "stateOrProvinceCode": recipient.get("state_code"),
                         "postalCode": recipient.get("postal_code"),
                         "countryCode": recipient.get("country"),
                     }
@@ -178,7 +175,7 @@ class FedExClient:
         url = "/rate/v1/rates/quotes"
         response = self._http.post(url, headers=self._auth_headers(), json=body)
         self._log_interaction(url, "POST", body, response.status_code, response.text)
-
+        print(response.status_code)
         if response.status_code != status.HTTP_200_OK:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -187,11 +184,11 @@ class FedExClient:
 
         payload = response.json()
         amount = None
-        currency = "USD"
+        currency = "EUR"
         try:
             details = payload["output"]["rateReplyDetails"][0]
             rated = details.get("ratedShipmentDetails", [])[0].get("totalNetCharge", {})
-            amount = float(rated.get("amount"))
+            amount = float(rated)
             currency = rated.get("currency") or currency
         except Exception:
             pass

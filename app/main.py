@@ -15,6 +15,7 @@ app = FastAPI(title="FedEx Shipment Gateway", version="1.0.0")
 
 def require_token(token: str = Query(..., description="Service token for authentication")):
     expected_token = get_service_token()
+    print(expected_token)
     if not expected_token or token != expected_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
@@ -146,15 +147,15 @@ def _create_and_send_shipment(
 @app.post("/rates", response_model=schemas.RateResponse, dependencies=[Depends(require_token)])
 def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
     account = _get_account(db, rate_request.account_id)
+    print(account)
     shipper = _get_shipper(db, rate_request.shipper_id)
+    print(shipper)
     client = _fedex_client(account, db)
+    print(client)
     quote = client.get_rate(
         weight_kg=rate_request.weight_kg,
         shipper=shipper,
         recipient={
-            "address": rate_request.destination_address,
-            "city": rate_request.destination_city,
-            "state_code": rate_request.destination_state_code,
             "postal_code": rate_request.destination_postal_code,
             "country": rate_request.destination_country,
         },
