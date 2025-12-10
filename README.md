@@ -103,6 +103,10 @@
       "shipper_id": 1,
       "service_type": "FIP",
       "weight_kg": 3.5,
+      "destination_address": "Friedrichstrasse 1",
+      "destination_city": "Berlin",
+      "destination_state_code": "BE",
+      "destination_postal_code": "10117",
       "destination_country": "DE"
     }'
   ```

@@ -81,6 +81,10 @@ class RateRequest(BaseModel):
     shipper_id: int
     service_type: AllowedService
     weight_kg: float
+    destination_address: str
+    destination_city: str
+    destination_state_code: str
+    destination_postal_code: str
     destination_country: str
 
 

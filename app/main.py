@@ -80,7 +80,13 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
     quote = client.get_rate(
         weight_kg=rate_request.weight_kg,
         shipper=shipper,
-        destination_country=rate_request.destination_country,
+        recipient={
+            "address": rate_request.destination_address,
+            "city": rate_request.destination_city,
+            "state_code": rate_request.destination_state_code,
+            "postal_code": rate_request.destination_postal_code,
+            "country": rate_request.destination_country,
+        },
         service_type=rate_request.service_type,
     )
     return schemas.RateResponse(
@@ -111,7 +117,13 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
     rate = client.get_rate(
         weight_kg=order.weight_kg,
         shipper=shipper,
-        destination_country=order.recipient_country,
+        recipient={
+            "address": order.recipient_address,
+            "city": order.recipient_city,
+            "state_code": order.recipient_state_code,
+            "postal_code": order.recipient_postal_code,
+            "country": order.recipient_country,
+        },
         service_type=order.service_type,
     )
 

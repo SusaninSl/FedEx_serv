@@ -138,7 +138,13 @@ class FedExClient:
     def _shipper_object(self, shipper) -> dict:
         return self._shipper_address(shipper)
 
-    def get_rate(self, weight_kg: float, shipper, destination_country: str, service_type: ServiceType) -> RateQuote:
+    def get_rate(
+        self,
+        weight_kg: float,
+        shipper,
+        recipient: dict,
+        service_type: ServiceType,
+    ) -> RateQuote:
         if service_type not in SERVICE_TYPE_MAP:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
 
@@ -148,7 +154,11 @@ class FedExClient:
                 "shipper": self._shipper_address(shipper),
                 "recipient": {
                     "address": {
-                        "countryCode": destination_country,
+                        "streetLines": [recipient.get("address")],
+                        "city": recipient.get("city"),
+                        "stateOrProvinceCode": recipient.get("state_code"),
+                        "postalCode": recipient.get("postal_code"),
+                        "countryCode": recipient.get("country"),
                     }
                 },
                 "serviceType": SERVICE_TYPE_MAP[service_type],
