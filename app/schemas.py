@@ -64,7 +64,7 @@ class ShipmentCreate(ShipmentBase):
 
 class ShipmentRead(ShipmentBase):
     id: int
-    price_quote: float
+    price_quote: Optional[float] = None
     tracking_number: str
     label_path: str
     status: str
@@ -93,6 +93,36 @@ class RateResponse(BaseModel):
     service_type: str
     currency: str
     amount: float
+
+
+class ShipmentTestRequest(BaseModel):
+    account_id: int
+    shipper_id: int
+    order_reference_prefix: str
+    recipient_name: str
+    recipient_company: Optional[str] = None
+    recipient_phone: str
+    recipient_email: Optional[str] = None
+    recipient_address: str
+    recipient_city: str
+    recipient_state_code: str
+    recipient_postal_code: str
+    recipient_country: str
+    weight_kg: float
+
+
+class ShipmentTestResult(BaseModel):
+    service_type: AllowedService
+    status: str
+    shipment: Optional[ShipmentRead] = None
+    error: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class ShipmentTestResponse(BaseModel):
+    results: List[ShipmentTestResult]
 
 
 class PaginatedShipments(BaseModel):

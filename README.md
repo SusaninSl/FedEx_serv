@@ -112,6 +112,7 @@
   ```
 
 - **Створити відправлення**
+  > Ендпоїнт створення відправлення **не робить запит тарифу**; спочатку за потреби викличте `/rates` і самостійно зафіксуйте ціну.
   ```bash
   curl -X POST "http://localhost:8000/orders?token=super-secret-token" \
     -H "Content-Type: application/json" \
@@ -133,6 +134,27 @@
     }'
   ```
 
+- **Технічний тест на кілька сервісів** — створює серію відправлень із однаковими відправником/одержувачем, але різними сервісами
+  (`FIP`, `IPE`, `FIE`, `RE`, `PO`, `FICP`). До `order_reference_prefix` автоматично додається код сервісу.
+  ```bash
+  curl -X POST "http://localhost:8000/test/shipments?token=super-secret-token" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "account_id": 1,
+      "shipper_id": 1,
+      "order_reference_prefix": "TEST-BATCH",
+      "recipient_name": "John Doe",
+      "recipient_phone": "+49-30-123456",
+      "recipient_address": "1 Market St",
+      "recipient_city": "Berlin",
+      "recipient_state_code": "BE",
+      "recipient_postal_code": "10115",
+      "recipient_country": "DE",
+      "weight_kg": 3.5
+    }'
+  ```
+  У відповіді повертається масив результатів по кожному сервісу зі статусом та, за успіху, повним записом відправлення.
+
 - **Завантажити етикетку**
   ```bash
   curl -L "http://localhost:8000/shipments/1/label?token=super-secret-token" -o label.pdf
@@ -142,6 +164,7 @@
 - Запит авторизації виконується на `/oauth/token` (grant_type=client_credentials); отриманий токен автоматично кешується.
 - Тарифи беруться з `/rate/v1/rates/quotes`, створення відправки — через `/ship/v1/shipments` із PDF-етикеткою (base64) та збереженням у `storage/labels`.
 - Усі дозволені сервіси: FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF.
+- Поле `price_quote` у відправленнях може бути відсутнім (None), якщо тариф не запитували через `/rates`.
 - У FedEx-запитах для створення відправлення тепер передаються обов'язкові поля: поштовий індекс та штат/область одержувача, телефон, `mergeLabelDocOption=LABELS_ONLY`, `labelSpecification.imageType=PDF`; відправники (shipper) зберігаються окремо і підставляються в кожен запит.
 - Дані зберігаються у SQLite, тому резервуйте файл `data/app.db` при продакшн-розгортанні.
 

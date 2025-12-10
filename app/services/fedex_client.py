@@ -150,6 +150,7 @@ class FedExClient:
 
         body = {
             "accountNumber": {"value": self.account.account_number},
+            "rateRequestType": ["ACCOUNT"],
             "requestedShipment": {
                 "shipper": self._shipper_address(shipper),
                 "recipient": {
