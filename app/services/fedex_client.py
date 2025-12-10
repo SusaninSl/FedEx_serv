@@ -8,7 +8,7 @@ from typing import Literal
 import httpx
 from fastapi import HTTPException, status
 
-from app.config import FEDEX_BASE_URL, LABEL_DIR
+from app.config import FEDEX_BASE_URL, LABEL_DIR, LOG_DIR
 from app.models import ApiLog
 
 ServiceType = Literal[
@@ -70,6 +70,25 @@ class FedExClient:
         response_status: int | None,
         response_payload: str,
     ) -> None:
+        timestamp_ms = int(time.time() * 1000)
+        safe_endpoint = endpoint.strip("/").replace("/", "-") or "root"
+        log_file = LOG_DIR / f"{timestamp_ms}_{method.upper()}_{safe_endpoint}.json"
+        log_file.write_text(
+            json.dumps(
+                {
+                    "timestamp": timestamp_ms,
+                    "account_id": self.account.id if self.account else None,
+                    "endpoint": endpoint,
+                    "method": method,
+                    "request": request_payload,
+                    "response_status": response_status,
+                    "response": response_payload,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+
         log = ApiLog(
             account_id=self.account.id if self.account else None,
             endpoint=endpoint,
@@ -175,7 +194,7 @@ class FedExClient:
         url = "/rate/v1/rates/quotes"
         response = self._http.post(url, headers=self._auth_headers(), json=body)
         self._log_interaction(url, "POST", body, response.status_code, response.text)
-        print(response.status_code)
+
         if response.status_code != status.HTTP_200_OK:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
