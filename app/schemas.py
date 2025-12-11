@@ -64,6 +64,10 @@ class ShipmentBase(BaseModel):
     recipient_postal_code: str
     recipient_country: str
     weight_kg: float
+    customs_required: bool = Field(
+        True,
+        description="1 to include customsClearanceDetail, 0 to skip customs data",
+    )
     customs_items: Optional[List[CommodityItem]] = Field(
         None,
         description=(
@@ -83,6 +87,7 @@ class ShipmentRead(ShipmentBase):
     label_path: str
     status: str
     created_at: datetime
+    customs_required: bool
     shipper: "ShipperRead"
     account: AccountRead
 
@@ -134,6 +139,7 @@ class ShipmentTestRequest(BaseModel):
     recipient_postal_code: str
     recipient_country: str
     weight_kg: float
+    customs_required: bool = True
     customs_items: Optional[List[CommodityItem]] = None
 
 

@@ -88,6 +88,7 @@ def _create_and_send_shipment(
     order_reference: str,
     recipient_payload: dict,
     weight_kg: float,
+    customs_required: bool,
     customs_items: list[schemas.CommodityItem] | None,
 ) -> Shipment:
     customs_serialized = None
@@ -112,6 +113,7 @@ def _create_and_send_shipment(
         recipient_country=recipient_payload.get("country"),
         weight_kg=weight_kg,
         customs_items=customs_serialized,
+        customs_required=customs_required,
         price_quote=None,
         tracking_number="",
         label_path="",
@@ -138,6 +140,7 @@ def _create_and_send_shipment(
                 "weight": shipment.weight_kg,
             },
             shipper=shipper,
+            include_customs=customs_required,
             commodities=customs_items,
         )
     except HTTPException:
@@ -206,6 +209,7 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
         order_reference=order.order_reference,
         recipient_payload=recipient_payload,
         weight_kg=order.weight_kg,
+        customs_required=order.customs_required,
         customs_items=order.customs_items,
     )
 
@@ -251,6 +255,7 @@ def run_test_shipments(payload: schemas.ShipmentTestRequest, db: Session = Depen
                 order_reference=order_reference,
                 recipient_payload=recipient_payload,
                 weight_kg=payload.weight_kg,
+                customs_required=payload.customs_required,
                 customs_items=payload.customs_items,
             )
             results.append(

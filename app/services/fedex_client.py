@@ -227,44 +227,46 @@ class FedExClient:
         service_type: ServiceType,
         recipient: dict,
         shipper,
+        include_customs: bool,
         commodities: list | None = None,
     ) -> tuple[str, str]:
         if service_type not in SERVICE_TYPE_MAP:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
 
         commodity_lines: list[dict] = []
-        if commodities:
-            for item in commodities:
-                try:
-                    data = item.dict(exclude_none=True)
-                except AttributeError:
-                    data = item
-                line: dict = {"description": data.get("description")}
-                quantity = data.get("quantity")
-                if quantity:
-                    line["quantity"] = quantity
-                    line["quantityUnits"] = "PCS"
-                if data.get("price") is not None:
-                    line["unitPrice"] = {"currency": "EUR", "amount": data.get("price")}
+        if include_customs:
+            if commodities:
+                for item in commodities:
+                    try:
+                        data = item.dict(exclude_none=True)
+                    except AttributeError:
+                        data = item
+                    line: dict = {"description": data.get("description")}
+                    quantity = data.get("quantity")
                     if quantity:
-                        line["customsValue"] = {
-                            "currency": "EUR",
-                            "amount": data.get("price") * quantity,
-                        }
-                weight_value = data.get("weight_kg") or data.get("weight")
-                if weight_value:
-                    line["weight"] = {"units": "KG", "value": float(weight_value)}
-                commodity_lines.append(line)
+                        line["quantity"] = quantity
+                        line["quantityUnits"] = "PCS"
+                    if data.get("price") is not None:
+                        line["unitPrice"] = {"currency": "EUR", "amount": data.get("price")}
+                        if quantity:
+                            line["customsValue"] = {
+                                "currency": "EUR",
+                                "amount": data.get("price") * quantity,
+                            }
+                    weight_value = data.get("weight_kg") or data.get("weight")
+                    if weight_value:
+                        line["weight"] = {"units": "KG", "value": float(weight_value)}
+                    commodity_lines.append(line)
 
-        if not commodity_lines:
-            commodity_lines.append(
-                {
-                    "description": "General Goods",
-                    "quantity": 1,
-                    "quantityUnits": "PCS",
-                    "weight": {"units": "KG", "value": float(recipient.get("weight", 1))},
-                }
-            )
+            if not commodity_lines:
+                commodity_lines.append(
+                    {
+                        "description": "General Goods",
+                        "quantity": 1,
+                        "quantityUnits": "PCS",
+                        "weight": {"units": "KG", "value": float(recipient.get("weight", 1))},
+                    }
+                )
 
         body = {
             "accountNumber": {"value": self.account.account_number},
@@ -296,24 +298,6 @@ class FedExClient:
                     "paymentType": "SENDER",
                     "payor": {"responsibleParty": {"accountNumber": {"value": self.account.account_number}}},
                 },
-                "customsClearanceDetail": {
-                    "commercialInvoice": {
-                        "shipmentPurpose": "SOLD",
-                        "customerReferences": [
-                            {"customerReferenceType": "INVOICE_NUMBER", "value": f"INV-{shipment_id}"}
-                        ],
-                        "comments": ["Generate invoice via FedEx"],
-                    },
-                    "commodities": commodity_lines,
-                    "dutiesPayment": {
-                        "paymentType": "SENDER",
-                        "payor": {
-                            "responsibleParty": {
-                                "accountNumber": {"value": self.account.account_number}
-                            }
-                        },
-                    },
-                },
                 "labelSpecification": {
                     "imageType": "PDF",
                     "labelFormatType": "COMMON2D",
@@ -326,6 +310,23 @@ class FedExClient:
                 ],
             },
         }
+        if include_customs:
+            body["requestedShipment"]["customsClearanceDetail"] = {
+                "commercialInvoice": {
+                    "shipmentPurpose": "SOLD",
+                    "customerReferences": [
+                        {"customerReferenceType": "INVOICE_NUMBER", "value": f"INV-{shipment_id}"}
+                    ],
+                    "comments": ["Generate invoice via FedEx"],
+                },
+                "commodities": commodity_lines,
+                "dutiesPayment": {
+                    "paymentType": "SENDER",
+                    "payor": {
+                        "responsibleParty": {"accountNumber": {"value": self.account.account_number}}
+                    },
+                },
+            }
         url = "/ship/v1/shipments"
         response = self._http.post(url, headers=self._auth_headers(), json=body)
         self._log_interaction(url, "POST", body, response.status_code, response.text)

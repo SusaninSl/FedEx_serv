@@ -132,6 +132,7 @@
       "recipient_postal_code": "10115",
       "recipient_country": "DE",
       "weight_kg": 3.5,
+      "customs_required": 1,
       "customs_items": [
         {
           "description": "Laptop", "quantity": 1, "price": 1200, "weight_kg": 2.5
@@ -160,6 +161,7 @@
       "recipient_postal_code": "10115",
       "recipient_country": "DE",
       "weight_kg": 3.5,
+      "customs_required": 1,
       "customs_items": [
         { "description": "Test goods", "quantity": 1, "price": 10 }
       ]
@@ -178,7 +180,7 @@
 - Усі дозволені сервіси: FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF.
 - Поле `price_quote` у відправленнях може бути відсутнім (None), якщо тариф не запитували через `/rates`.
 - У FedEx-запитах для створення відправлення тепер передаються обов'язкові поля: поштовий індекс та штат/область одержувача, телефон, `mergeLabelDocOption=LABELS_ONLY`, `labelSpecification.imageType=PDF`; відправники (shipper) зберігаються окремо і підставляються в кожен запит.
-- До `requestedShipment.customsClearanceDetail` автоматично додається комерційний інвойс, який формує FedEx, та перелік товарів з описом (quantity/price/weight за бажанням). Якщо не передати `customs_items`, у запит піде базова позиція "General Goods" з вагою відправлення.
+- До `requestedShipment.customsClearanceDetail` автоматично додається комерційний інвойс, який формує FedEx, та перелік товарів з описом (quantity/price/weight за бажанням). Якщо не передати `customs_items`, у запит піде базова позиція "General Goods" з вагою відправлення. Для відправлень без митного оформлення передайте `customs_required: 0`, тоді `customsClearanceDetail` не включатиметься в запит.
 - Дані зберігаються у SQLite, тому резервуйте файл `data/app.db` при продакшн-розгортанні.
 
 ## Швидкий старт на Windows 11 у Visual Studio Code
