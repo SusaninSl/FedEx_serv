@@ -1,3 +1,5 @@
+import json
+
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -86,7 +88,15 @@ def _create_and_send_shipment(
     order_reference: str,
     recipient_payload: dict,
     weight_kg: float,
+    customs_required: bool,
+    customs_items: list[schemas.CommodityItem] | None,
 ) -> Shipment:
+    customs_serialized = None
+    if customs_items:
+        customs_serialized = json.dumps(
+            [item.dict(exclude_none=True) for item in customs_items], ensure_ascii=False
+        )
+
     shipment = Shipment(
         order_reference=order_reference,
         account_id=account.id,
@@ -102,6 +112,8 @@ def _create_and_send_shipment(
         recipient_postal_code=recipient_payload.get("postal_code"),
         recipient_country=recipient_payload.get("country"),
         weight_kg=weight_kg,
+        customs_items=customs_serialized,
+        customs_required=customs_required,
         price_quote=None,
         tracking_number="",
         label_path="",
@@ -128,6 +140,8 @@ def _create_and_send_shipment(
                 "weight": shipment.weight_kg,
             },
             shipper=shipper,
+            include_customs=customs_required,
+            commodities=customs_items,
         )
     except HTTPException:
         shipment.status = "error"
@@ -192,6 +206,8 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
         order_reference=order.order_reference,
         recipient_payload=recipient_payload,
         weight_kg=order.weight_kg,
+        customs_required=order.customs_required,
+        customs_items=order.customs_items,
     )
 
     return shipment
@@ -236,6 +252,8 @@ def run_test_shipments(payload: schemas.ShipmentTestRequest, db: Session = Depen
                 order_reference=order_reference,
                 recipient_payload=recipient_payload,
                 weight_kg=payload.weight_kg,
+                customs_required=payload.customs_required,
+                customs_items=payload.customs_items,
             )
             results.append(
                 schemas.ShipmentTestResult(

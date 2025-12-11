@@ -1,7 +1,8 @@
 from datetime import datetime
+import json
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 
 class AccountBase(BaseModel):
@@ -38,6 +39,13 @@ AllowedService = Literal[
 ]
 
 
+class CommodityItem(BaseModel):
+    description: str
+    quantity: Optional[float] = Field(None, description="Quantity of the item")
+    price: Optional[float] = Field(None, description="Unit price in sender currency")
+    weight_kg: Optional[float] = Field(None, description="Item weight in KG")
+
+
 class ShipmentBase(BaseModel):
     order_reference: str
     account_id: int
@@ -56,6 +64,16 @@ class ShipmentBase(BaseModel):
     recipient_postal_code: str
     recipient_country: str
     weight_kg: float
+    customs_required: bool = Field(
+        True,
+        description="1 to include customsClearanceDetail, 0 to skip customs data",
+    )
+    customs_items: Optional[List[CommodityItem]] = Field(
+        None,
+        description=(
+            "Commodity lines for customs; description required, quantity/price/weight optional"
+        ),
+    )
 
 
 class ShipmentCreate(ShipmentBase):
@@ -69,11 +87,23 @@ class ShipmentRead(ShipmentBase):
     label_path: str
     status: str
     created_at: datetime
+    customs_required: bool
     shipper: "ShipperRead"
     account: AccountRead
 
     class Config:
         orm_mode = True
+
+    @validator("customs_items", pre=True)
+    def _parse_customs_items(cls, value):
+        if value is None:
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return None
+        return value
 
 
 class RateRequest(BaseModel):
@@ -106,6 +136,8 @@ class ShipmentTestRequest(BaseModel):
     recipient_postal_code: str
     recipient_country: str
     weight_kg: float
+    customs_required: bool = True
+    customs_items: Optional[List[CommodityItem]] = None
 
 
 class ShipmentTestResult(BaseModel):

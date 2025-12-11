@@ -58,6 +58,8 @@ class Shipment(Base):
     recipient_postal_code = Column(String(20), nullable=False)
     recipient_country = Column(String(100), nullable=False)
     weight_kg = Column(Float, nullable=False)
+    customs_items = Column(Text, nullable=True)
+    customs_required = Column(Boolean, default=True)
     price_quote = Column(Numeric(10, 2), nullable=True)
     tracking_number = Column(String(100), nullable=False)
     label_path = Column(String(255), nullable=False)
