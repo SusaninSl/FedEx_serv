@@ -53,7 +53,7 @@ class FedExAccount:
 class RateQuote:
     service_type: str
     amount: float
-    currency: str = "USD"
+    currency: str = "EUR"
 
 
 class FedExClient:
@@ -176,9 +176,6 @@ class FedExClient:
                 "shipper": self._shipper_address(shipper),
                 "recipient": {
                     "address": {
-                        "streetLines": [recipient.get("address")],
-                        "city": recipient.get("city"),
-                        "stateOrProvinceCode": recipient.get("state_code"),
                         "postalCode": recipient.get("postal_code"),
                         "countryCode": recipient.get("country"),
                     }
@@ -218,8 +215,8 @@ class FedExClient:
                 if not rated:
                     continue
                 total_charge = rated[0].get("totalNetCharge", {})
-                amount = total_charge.get("amount")
-                currency = total_charge.get("currency") or "USD"
+                currency = rated[0].get("currency", {})
+                amount = total_charge
                 if amount is None:
                     continue
                 quotes.append(
@@ -281,10 +278,10 @@ class FedExClient:
             if not commodity_lines:
                 commodity_lines.append(
                     {
-                        "description": "General Goods",
+                        "description": "PVC Window",
                         "quantity": 1,
                         "quantityUnits": "PCS",
-                        "weight": {"units": "KG", "value": float(recipient.get("weight", 1))},
+                        "weight": {"units": "KG", "value": float(recipient.get("weight", 10))},
                     }
                 )
 

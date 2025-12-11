@@ -170,9 +170,6 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
         weight_kg=rate_request.weight_kg,
         shipper=shipper,
         recipient={
-            "address": rate_request.destination_address,
-            "city": rate_request.destination_city,
-            "state_code": rate_request.destination_state_code,
             "postal_code": rate_request.destination_postal_code,
             "country": rate_request.destination_country,
         },

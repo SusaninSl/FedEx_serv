@@ -117,17 +117,8 @@ class RateRequest(BaseModel):
         ),
     )
     weight_kg: float
-    destination_address: str
-    destination_city: str
-    destination_state_code: str
     destination_postal_code: str
     destination_country: str
-
-
-class RateQuote(BaseModel):
-    service_type: str
-    currency: str
-    amount: float
 
 
 class RateResponse(BaseModel):
