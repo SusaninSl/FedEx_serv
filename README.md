@@ -96,21 +96,38 @@
   ```
 
 - **Запитати тариф**
-  ```bash
-  curl -X POST "http://localhost:8000/rates?token=super-secret-token" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "account_id": 1,
-      "shipper_id": 1,
-      "service_type": "FIP",
-      "weight_kg": 3.5,
-      "destination_address": "Friedrichstrasse 1",
-      "destination_city": "Berlin",
-      "destination_state_code": "BE",
-      "destination_postal_code": "10117",
-      "destination_country": "DE"
-    }'
-  ```
+  - Якщо вказати `service_type`, повертається ціна конкретного сервісу:
+    ```bash
+    curl -X POST "http://localhost:8000/rates?token=super-secret-token" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "account_id": 1,
+        "shipper_id": 1,
+        "service_type": "FIP",
+        "weight_kg": 3.5,
+        "destination_address": "Friedrichstrasse 1",
+        "destination_city": "Berlin",
+        "destination_state_code": "BE",
+        "destination_postal_code": "10117",
+        "destination_country": "DE"
+      }'
+    ```
+
+  - Якщо **не вказувати** `service_type`, відповідь міститиме список тарифів для всіх доступних сервісів:
+    ```bash
+    curl -X POST "http://localhost:8000/rates?token=super-secret-token" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "account_id": 1,
+        "shipper_id": 1,
+        "weight_kg": 3.5,
+        "destination_address": "Friedrichstrasse 1",
+        "destination_city": "Berlin",
+        "destination_state_code": "BE",
+        "destination_postal_code": "10117",
+        "destination_country": "DE"
+      }'
+    ```
 
 - **Створити відправлення**
   > Ендпоїнт створення відправлення **не робить запит тарифу**; спочатку за потреби викличте `/rates` і самостійно зафіксуйте ціну.

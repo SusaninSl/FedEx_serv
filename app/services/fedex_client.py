@@ -35,6 +35,8 @@ SERVICE_TYPE_MAP = {
     "REF": "INTERNATIONAL_ECONOMY_FREIGHT",
 }
 
+SERVICE_TYPE_REVERSE_MAP = {value: key for key, value in SERVICE_TYPE_MAP.items()}
+
 
 @dataclass
 class FedExAccount:
@@ -49,6 +51,7 @@ class FedExAccount:
 
 @dataclass
 class RateQuote:
+    service_type: str
     amount: float
     currency: str = "EUR"
 
@@ -162,9 +165,9 @@ class FedExClient:
         weight_kg: float,
         shipper,
         recipient: dict,
-        service_type: ServiceType,
-    ) -> RateQuote:
-        if service_type not in SERVICE_TYPE_MAP:
+        service_type: ServiceType | None,
+    ) -> list[RateQuote]:
+        if service_type and service_type not in SERVICE_TYPE_MAP:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
 
         body = {
@@ -177,7 +180,6 @@ class FedExClient:
                         "countryCode": recipient.get("country"),
                     }
                 },
-                "serviceType": SERVICE_TYPE_MAP[service_type],
                 "pickupType": "USE_SCHEDULED_PICKUP",
                 "rateRequestType": ["ACCOUNT", "LIST"],
                 "requestedPackageLineItems": [
@@ -191,6 +193,8 @@ class FedExClient:
                 "preferredCurrency": "EUR",
             },
         }
+        if service_type:
+            body["requestedShipment"]["serviceType"] = SERVICE_TYPE_MAP[service_type]
         url = "/rate/v1/rates/quotes"
         response = self._http.post(url, headers=self._auth_headers(), json=body)
         self._log_interaction(url, "POST", body, response.status_code, response.text)
@@ -200,22 +204,38 @@ class FedExClient:
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"FedEx rate error: {response.text}",
             )
-
         payload = response.json()
-        amount = None
-        currency = "EUR"
+        quotes: list[RateQuote] = []
         try:
-            details = payload["output"]["rateReplyDetails"][0]
-            rated = details.get("ratedShipmentDetails", [])[0].get("totalNetCharge", {})
-            amount = float(rated)
-            currency = rated.get("currency") or currency
+            details_list = payload.get("output", {}).get("rateReplyDetails", [])
+            for details in details_list:
+                fedex_service = details.get("serviceType")
+                service_code = SERVICE_TYPE_REVERSE_MAP.get(fedex_service, fedex_service or "")
+                rated = details.get("ratedShipmentDetails", [])
+                if not rated:
+                    continue
+                total_charge = rated[0].get("totalNetCharge", {})
+                currency = rated[0].get("currency", {})
+                amount = total_charge
+                if amount is None:
+                    continue
+                quotes.append(
+                    RateQuote(
+                        service_type=service_code,
+                        amount=float(amount),
+                        currency=currency,
+                    )
+                )
         except Exception:
-            pass
+            quotes = []
 
-        if amount is None:
+        if service_type and not quotes:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="FedEx rate missing in response")
 
-        return RateQuote(amount=amount, currency=currency)
+        if not quotes:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="FedEx rate missing in response")
+
+        return quotes
 
     def create_shipment(
         self,

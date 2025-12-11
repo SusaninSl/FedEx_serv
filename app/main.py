@@ -157,12 +157,16 @@ def _create_and_send_shipment(
     return shipment
 
 
-@app.post("/rates", response_model=schemas.RateResponse, dependencies=[Depends(require_token)])
+@app.post(
+    "/rates",
+    response_model=schemas.RateListResponse | schemas.RateResponse,
+    dependencies=[Depends(require_token)],
+)
 def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
     account = _get_account(db, rate_request.account_id)
     shipper = _get_shipper(db, rate_request.shipper_id)
     client = _fedex_client(account, db)
-    quote = client.get_rate(
+    quotes = client.get_rate(
         weight_kg=rate_request.weight_kg,
         shipper=shipper,
         recipient={
@@ -171,11 +175,21 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
         },
         service_type=rate_request.service_type,
     )
-    return schemas.RateResponse(
+    if rate_request.service_type:
+        quote = quotes[0]
+        return schemas.RateResponse(
+            account_id=account.id,
+            service_type=quote.service_type,
+            currency=quote.currency,
+            amount=quote.amount,
+        )
+
+    return schemas.RateListResponse(
         account_id=account.id,
-        service_type=rate_request.service_type,
-        currency=quote.currency,
-        amount=quote.amount,
+        quotes=[
+            schemas.RateQuote(service_type=quote.service_type, currency=quote.currency, amount=quote.amount)
+            for quote in quotes
+        ],
     )
 
 

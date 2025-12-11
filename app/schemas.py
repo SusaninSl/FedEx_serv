@@ -109,7 +109,13 @@ class ShipmentRead(ShipmentBase):
 class RateRequest(BaseModel):
     account_id: int
     shipper_id: int
-    service_type: AllowedService
+    service_type: Optional[AllowedService] = Field(
+        None,
+        description=(
+            "Optional service code (FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF); "
+            "omit to get all available services"
+        ),
+    )
     weight_kg: float
     destination_postal_code: str
     destination_country: str
@@ -120,6 +126,11 @@ class RateResponse(BaseModel):
     service_type: str
     currency: str
     amount: float
+
+
+class RateListResponse(BaseModel):
+    account_id: int
+    quotes: List[RateQuote]
 
 
 class ShipmentTestRequest(BaseModel):
