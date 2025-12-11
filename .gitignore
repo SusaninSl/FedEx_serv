@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+.env.local
+*.sqlite3
+data/
+storage/labels/
