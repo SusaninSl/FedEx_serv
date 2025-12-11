@@ -50,7 +50,7 @@ class FedExAccount:
 @dataclass
 class RateQuote:
     amount: float
-    currency: str = "USD"
+    currency: str = "EUR"
 
 
 class FedExClient:
@@ -173,9 +173,6 @@ class FedExClient:
                 "shipper": self._shipper_address(shipper),
                 "recipient": {
                     "address": {
-                        "streetLines": [recipient.get("address")],
-                        "city": recipient.get("city"),
-                        "stateOrProvinceCode": recipient.get("state_code"),
                         "postalCode": recipient.get("postal_code"),
                         "countryCode": recipient.get("country"),
                     }
@@ -206,11 +203,11 @@ class FedExClient:
 
         payload = response.json()
         amount = None
-        currency = "USD"
+        currency = "EUR"
         try:
             details = payload["output"]["rateReplyDetails"][0]
             rated = details.get("ratedShipmentDetails", [])[0].get("totalNetCharge", {})
-            amount = float(rated.get("amount"))
+            amount = float(rated)
             currency = rated.get("currency") or currency
         except Exception:
             pass
@@ -261,10 +258,10 @@ class FedExClient:
             if not commodity_lines:
                 commodity_lines.append(
                     {
-                        "description": "General Goods",
+                        "description": "PVC Window",
                         "quantity": 1,
                         "quantityUnits": "PCS",
-                        "weight": {"units": "KG", "value": float(recipient.get("weight", 1))},
+                        "weight": {"units": "KG", "value": float(recipient.get("weight", 10))},
                     }
                 )
 
