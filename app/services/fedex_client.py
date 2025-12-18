@@ -22,6 +22,8 @@ ServiceType = Literal[
     "IEF",
     "REF",
     "RETURNS",
+    "FIRST",
+    "FP"
 ]
 
 SERVICE_TYPE_MAP = {
@@ -35,6 +37,8 @@ SERVICE_TYPE_MAP = {
     "IEF": "INTERNATIONAL_ECONOMY_FREIGHT",
     "REF": "INTERNATIONAL_ECONOMY_FREIGHT",
     "RETURNS": "INTERNATIONAL_PRIORITY",
+    "FIRST": "FEDEX_FIRST",
+    "FP": "FEDEX_PRIORITY",
 }
 
 SERVICE_TYPE_REVERSE_MAP = {
@@ -46,6 +50,8 @@ SERVICE_TYPE_REVERSE_MAP = {
     "FEDEX_INTERNATIONAL_CONNECT_PLUS": "FICP",
     "INTERNATIONAL_PRIORITY_FREIGHT": "IPF",
     "INTERNATIONAL_ECONOMY_FREIGHT": "IEF",
+    "FEDEX_FIRST": "FIRST",
+    "FEDEX_PRIORITY": "FP",
 }
 
 
@@ -184,11 +190,7 @@ class FedExClient:
         body = {
             "accountNumber": {"value": self.account.account_number},
             "requestedShipment": {
-                "shipper": {
-                    "address": {
-                        "postalCode": shipper.postal_code,
-                        "countryCode": shipper.country_code,
-                    }
+                "shipper": self._shipper_address(shipper),
                 },
                 "recipient": {
                     "address": {
@@ -231,8 +233,8 @@ class FedExClient:
                 if not rated:
                     continue
                 total_charge = rated[0].get("totalNetCharge", {})
-                amount = total_charge.get("amount")
-                currency = total_charge.get("currency") or "EUR"
+                currency = rated[0].get("currency", {})
+                amount = total_charge
                 if amount is None:
                     continue
                 quotes.append(
@@ -301,14 +303,12 @@ class FedExClient:
             if not commodity_lines:
                 commodity_lines.append(
                     {
-                        "description": "General Goods",
+                        "description": "PVC Window",
                         "quantity": 1,
                         "quantityUnits": "PCS",
-                        "weight": {"units": "KG", "value": float(recipient.get("weight", 1))},
+                        "weight": {"units": "KG", "value": float(recipient.get("weight", 10))},
                     }
                 )
-
-        actual_service = SERVICE_TYPE_MAP[service_type]
 
         body = {
             "accountNumber": {"value": self.account.account_number},

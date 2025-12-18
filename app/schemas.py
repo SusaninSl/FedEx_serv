@@ -37,6 +37,8 @@ AllowedService = Literal[
     "IEF",  # FedEx International Economy Freight
     "REF",  # FedEx Regional Economy Freight
     "RETURNS",  # FedEx Global Returns
+    "FIRST",
+    "FP"
 ]
 
 
@@ -60,7 +62,7 @@ class ShipmentBase(BaseModel):
     broker_id: Optional[int] = Field(None, description="Broker to use for BSO")
     service_type: AllowedService = Field(
         ...,
-        description="FedEx service code (FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF, RETURNS)",
+        description="FedEx service code (FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF, RETURNS, FIRST, FP)",
     )
     recipient_name: str
     recipient_company: Optional[str] = None
