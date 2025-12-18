@@ -40,6 +40,25 @@ class Shipper(Base):
     shipments = relationship("Shipment", back_populates="shipper")
 
 
+class Broker(Base):
+    __tablename__ = "brokers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    company = Column(String(255), nullable=True)
+    person_name = Column(String(255), nullable=False)
+    phone_number = Column(String(50), nullable=False)
+    email = Column(String(255), nullable=True)
+    street_lines = Column(Text, nullable=False)
+    city = Column(String(100), nullable=False)
+    state_code = Column(String(10), nullable=False)
+    postal_code = Column(String(20), nullable=False)
+    country_code = Column(String(10), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    shipments = relationship("Shipment", back_populates="broker")
+
+
 class Shipment(Base):
     __tablename__ = "shipments"
 
@@ -47,6 +66,7 @@ class Shipment(Base):
     order_reference = Column(String(100), nullable=False)
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
     shipper_id = Column(Integer, ForeignKey("shippers.id"), nullable=False)
+    broker_id = Column(Integer, ForeignKey("brokers.id"), nullable=True)
     service_type = Column(String(50), nullable=False)
     recipient_name = Column(String(255), nullable=False)
     recipient_company = Column(String(255), nullable=True)
@@ -60,6 +80,11 @@ class Shipment(Base):
     weight_kg = Column(Float, nullable=False)
     customs_items = Column(Text, nullable=True)
     customs_required = Column(Boolean, default=True)
+    special_services = Column(Text, nullable=True)
+    etd_documents = Column(Text, nullable=True)
+    ship_alert_emails = Column(Text, nullable=True)
+    is_return = Column(Boolean, default=False)
+    return_reference = Column(String(255), nullable=True)
     price_quote = Column(Numeric(10, 2), nullable=True)
     tracking_number = Column(String(100), nullable=False)
     label_path = Column(String(255), nullable=False)
@@ -68,6 +93,7 @@ class Shipment(Base):
 
     account = relationship("Account", back_populates="shipments")
     shipper = relationship("Shipper", back_populates="shipments")
+    broker = relationship("Broker", back_populates="shipments")
 
 
 class ApiLog(Base):

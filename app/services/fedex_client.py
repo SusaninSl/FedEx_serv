@@ -21,21 +21,38 @@ ServiceType = Literal[
     "IPF",
     "IEF",
     "REF",
+    "RETURNS",
+    "FIRST",
+    "FP"
 ]
 
 SERVICE_TYPE_MAP = {
     "FIP": "INTERNATIONAL_PRIORITY",
     "IPE": "INTERNATIONAL_PRIORITY_EXPRESS",
     "FIE": "INTERNATIONAL_ECONOMY",
-    "RE": "INTERNATIONAL_ECONOMY",
+    "RE": "FEDEX_REGIONAL_ECONOMY",
     "PO": "PRIORITY_OVERNIGHT",
-    "FICP": "INTERNATIONAL_CONNECT_PLUS",
+    "FICP": "FEDEX_INTERNATIONAL_CONNECT_PLUS",
     "IPF": "INTERNATIONAL_PRIORITY_FREIGHT",
     "IEF": "INTERNATIONAL_ECONOMY_FREIGHT",
     "REF": "INTERNATIONAL_ECONOMY_FREIGHT",
+    "RETURNS": "INTERNATIONAL_PRIORITY",
+    "FIRST": "FEDEX_FIRST",
+    "FP": "FEDEX_PRIORITY",
 }
 
-SERVICE_TYPE_REVERSE_MAP = {value: key for key, value in SERVICE_TYPE_MAP.items()}
+SERVICE_TYPE_REVERSE_MAP = {
+    "INTERNATIONAL_PRIORITY": "FIP",
+    "INTERNATIONAL_PRIORITY_EXPRESS": "IPE",
+    "INTERNATIONAL_ECONOMY": "FIE",
+    "FEDEX_REGIONAL_ECONOMY": "RE",
+    "PRIORITY_OVERNIGHT": "PO",
+    "FEDEX_INTERNATIONAL_CONNECT_PLUS": "FICP",
+    "INTERNATIONAL_PRIORITY_FREIGHT": "IPF",
+    "INTERNATIONAL_ECONOMY_FREIGHT": "IEF",
+    "FEDEX_FIRST": "FIRST",
+    "FEDEX_PRIORITY": "FP",
+}
 
 
 @dataclass
@@ -174,6 +191,7 @@ class FedExClient:
             "accountNumber": {"value": self.account.account_number},
             "requestedShipment": {
                 "shipper": self._shipper_address(shipper),
+                },
                 "recipient": {
                     "address": {
                         "postalCode": recipient.get("postal_code"),
@@ -210,7 +228,7 @@ class FedExClient:
             details_list = payload.get("output", {}).get("rateReplyDetails", [])
             for details in details_list:
                 fedex_service = details.get("serviceType")
-                service_code = SERVICE_TYPE_REVERSE_MAP.get(fedex_service, fedex_service or "")
+                service_code = service_type or SERVICE_TYPE_REVERSE_MAP.get(fedex_service, fedex_service or "")
                 rated = details.get("ratedShipmentDetails", [])
                 if not rated:
                     continue
@@ -246,6 +264,13 @@ class FedExClient:
         shipper,
         include_customs: bool,
         commodities: list | None = None,
+        broker=None,
+        broker_option: bool = False,
+        third_party_consignee: bool = False,
+        ship_alert_emails: list[str] | None = None,
+        etd_documents: list[dict] | None = None,
+        is_return: bool = False,
+        return_reference: str | None = None,
     ) -> tuple[str, str]:
         if service_type not in SERVICE_TYPE_MAP:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
@@ -308,7 +333,7 @@ class FedExClient:
                         },
                     }
                 ],
-                "serviceType": SERVICE_TYPE_MAP[service_type],
+                "serviceType": actual_service,
                 "packagingType": "YOUR_PACKAGING",
                 "pickupType": "USE_SCHEDULED_PICKUP",
                 "shippingChargesPayment": {
@@ -327,6 +352,79 @@ class FedExClient:
                 ],
             },
         }
+
+        if is_return:
+            body["requestedShipment"]["serviceType"] = SERVICE_TYPE_MAP.get("RETURNS", actual_service)
+            body["requestedShipment"]["returnShipmentDetail"] = {
+                "returnType": "PRINT_RETURN_LABEL",
+                "rma": {"reason": return_reference or "Customer return"},
+            }
+
+        if service_type in {"IPF", "IEF", "REF"}:
+            body["requestedShipment"]["totalWeight"] = {
+                "units": "KG",
+                "value": float(recipient.get("weight", 1)),
+            }
+
+        special_service_types: list[str] = []
+        special_service_detail: dict = {}
+
+        if broker_option and broker:
+            special_service_types.append("BROKER_SELECT_OPTION")
+            special_service_detail["brokerDetail"] = {
+                "type": "BROKER_OF_CHOICE",
+                "broker": self._shipper_object(broker),
+            }
+
+        if third_party_consignee:
+            special_service_types.append("THIRD_PARTY_CONSIGNEE")
+
+        if ship_alert_emails:
+            special_service_types.append("EMAIL_NOTIFICATION")
+            special_service_detail["emailNotificationDetail"] = {
+                "aggregationType": "PER_SHIPMENT",
+                "emailRecipients": [
+                    {
+                        "emailAddress": email,
+                        "role": "RECIPIENT",
+                        "notificationFormatType": "HTML",
+                        "notificationEventType": [
+                            "ON_SHIPMENT", "ON_DELIVERY", "ON_EXCEPTION",
+                        ],
+                    }
+                    for email in ship_alert_emails
+                    if email
+                ],
+            }
+
+        if etd_documents:
+            special_service_types.append("ELECTRONIC_TRADE_DOCUMENTS")
+            body["requestedShipment"]["shippingDocumentSpecification"] = {
+                "shippingDocumentTypes": list({doc.get("doc_type", "COMMERCIAL_INVOICE") for doc in etd_documents}),
+                "commercialInvoiceDetail": {
+                    "customerImageUsages": [
+                        {
+                            "type": "SIGNATURE_IMAGE",
+                            "id": "SIGNATURE",
+                        }
+                    ]
+                },
+            }
+            body["requestedShipment"]["documentUploads"] = [
+                {
+                    "documentType": doc.get("doc_type", "COMMERCIAL_INVOICE"),
+                    "fileName": doc.get("name"),
+                    "documentContent": doc.get("content_base64"),
+                }
+                for doc in etd_documents
+            ]
+
+        if special_service_types:
+            body["requestedShipment"]["shipmentSpecialServices"] = {
+                "specialServiceTypes": special_service_types,
+                **special_service_detail,
+            }
+
         if include_customs:
             body["requestedShipment"]["customsClearanceDetail"] = {
                 "commercialInvoice": {
@@ -402,3 +500,63 @@ class FedExClient:
             Path(label_path).write_bytes(fallback)
 
         return str(label_path)
+
+    def track_shipment(self, tracking_number: str) -> dict:
+        body = {
+            "includeDetailedScans": True,
+            "trackingInfo": [
+                {
+                    "trackingNumberInfo": {
+                        "trackingNumber": tracking_number,
+                    }
+                }
+            ],
+        }
+        url = "/track/v1/trackingnumbers"
+        response = self._http.post(url, headers=self._auth_headers(), json=body)
+        self._log_interaction(url, "POST", body, response.status_code, response.text)
+
+        if response.status_code != status.HTTP_200_OK:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"FedEx tracking error: {response.text}",
+            )
+        return response.json()
+
+    def request_spod(self, tracking_number: str, save_path: Path) -> str:
+        body = {
+            "trackingInfo": [
+                {
+                    "trackingNumberInfo": {
+                        "trackingNumber": tracking_number,
+                    }
+                }
+            ],
+            "format": "PDF",
+        }
+        url = "/track/v1/proof-of-delivery"
+        response = self._http.post(url, headers=self._auth_headers(), json=body)
+        self._log_interaction(url, "POST", body, response.status_code, response.text)
+
+        if response.status_code != status.HTTP_200_OK:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"FedEx SPOD error: {response.text}",
+            )
+        payload = response.json()
+        encoded = None
+        try:
+            encoded = (
+                payload.get("output", {})
+                .get("proofOfDeliveryDocuments", [])[0]
+                .get("documentContent")
+            )
+        except Exception:
+            encoded = None
+
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        if encoded:
+            save_path.write_bytes(base64.b64decode(encoded))
+        else:
+            save_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        return str(save_path)

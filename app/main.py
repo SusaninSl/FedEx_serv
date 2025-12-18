@@ -1,13 +1,14 @@
 import json
+from types import SimpleNamespace
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app import schemas
-from app.config import get_service_token
+from app.config import SPOD_DIR, get_service_token
 from app.database import engine, get_db
-from app.models import Account, Base, Shipment, Shipper
+from app.models import Account, Base, Broker, Shipment, Shipper
 from app.services.fedex_client import FedExAccount, FedExClient
 
 Base.metadata.create_all(bind=engine)
@@ -63,6 +64,29 @@ def _get_shipper(db: Session, shipper_id: int) -> Shipper:
     return shipper
 
 
+@app.post("/brokers", response_model=schemas.BrokerRead, dependencies=[Depends(require_token)])
+def create_broker(broker: schemas.BrokerCreate, db: Session = Depends(get_db)):
+    db_broker = Broker(**broker.dict())
+    db.add(db_broker)
+    db.commit()
+    db.refresh(db_broker)
+    return db_broker
+
+
+@app.get("/brokers", response_model=list[schemas.BrokerRead], dependencies=[Depends(require_token)])
+def list_brokers(db: Session = Depends(get_db)):
+    return db.query(Broker).order_by(Broker.created_at.desc()).all()
+
+
+def _get_broker(db: Session, broker_id: int | None) -> Broker | None:
+    if broker_id is None:
+        return None
+    broker = db.query(Broker).filter(Broker.id == broker_id).first()
+    if not broker:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Broker not found")
+    return broker
+
+
 def _fedex_client(account: Account, db: Session) -> FedExClient:
     return FedExClient(
         FedExAccount(
@@ -83,14 +107,23 @@ def _create_and_send_shipment(
     client: FedExClient,
     *,
     account: Account,
-    shipper: Shipper,
+    shipper,
+    shipper_record: Shipper | None = None,
+    broker: Broker | None,
     service_type: schemas.AllowedService,
     order_reference: str,
     recipient_payload: dict,
     weight_kg: float,
     customs_required: bool,
     customs_items: list[schemas.CommodityItem] | None,
+    broker_option: bool = False,
+    third_party_consignee: bool = False,
+    ship_alert_emails: list[str] | None = None,
+    etd_documents: list[schemas.ETDDocument] | None = None,
+    is_return: bool = False,
+    return_reference: str | None = None,
 ) -> Shipment:
+    shipper_record = shipper_record or shipper
     customs_serialized = None
     if customs_items:
         customs_serialized = json.dumps(
@@ -100,7 +133,8 @@ def _create_and_send_shipment(
     shipment = Shipment(
         order_reference=order_reference,
         account_id=account.id,
-        shipper_id=shipper.id,
+        shipper_id=shipper_record.id,
+        broker_id=broker.id if broker else None,
         service_type=service_type,
         recipient_name=recipient_payload.get("name"),
         recipient_company=recipient_payload.get("company"),
@@ -114,6 +148,21 @@ def _create_and_send_shipment(
         weight_kg=weight_kg,
         customs_items=customs_serialized,
         customs_required=customs_required,
+        special_services=json.dumps(
+            {
+                "broker_select_option": broker_option,
+                "third_party_consignee": third_party_consignee,
+                "is_return": is_return,
+            },
+            ensure_ascii=False,
+        ),
+        etd_documents=
+        json.dumps([doc.dict(exclude_none=True) for doc in etd_documents], ensure_ascii=False)
+        if etd_documents
+        else None,
+        ship_alert_emails=json.dumps(ship_alert_emails, ensure_ascii=False) if ship_alert_emails else None,
+        is_return=is_return,
+        return_reference=return_reference,
         price_quote=None,
         tracking_number="",
         label_path="",
@@ -142,6 +191,13 @@ def _create_and_send_shipment(
             shipper=shipper,
             include_customs=customs_required,
             commodities=customs_items,
+            broker=broker,
+            broker_option=broker_option,
+            third_party_consignee=third_party_consignee,
+            ship_alert_emails=ship_alert_emails,
+            etd_documents=[doc.dict(exclude_none=True) for doc in etd_documents] if etd_documents else None,
+            is_return=is_return,
+            return_reference=return_reference,
         )
     except HTTPException:
         shipment.status = "error"
@@ -197,6 +253,7 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
 def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)):
     account = _get_account(db, order.account_id)
     shipper = _get_shipper(db, order.shipper_id)
+    broker = _get_broker(db, order.broker_id)
     client = _fedex_client(account, db)
 
     recipient_payload = {
@@ -216,12 +273,105 @@ def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)
         client,
         account=account,
         shipper=shipper,
+        broker=broker,
         service_type=order.service_type,
         order_reference=order.order_reference,
         recipient_payload=recipient_payload,
         weight_kg=order.weight_kg,
         customs_required=order.customs_required,
         customs_items=order.customs_items,
+        broker_option=order.broker_select_option,
+        third_party_consignee=order.third_party_consignee,
+        ship_alert_emails=order.ship_alert_emails,
+        etd_documents=order.etd_documents,
+        is_return=order.is_return,
+        return_reference=order.return_reference,
+    )
+
+    return shipment
+
+
+@app.post(
+    "/orders/bso",
+    response_model=schemas.ShipmentRead,
+    dependencies=[Depends(require_token)],
+    summary="Create shipment with International Broker Select Option",
+)
+def create_bso_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)):
+    if not order.broker_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="broker_id is required for BSO")
+    order.broker_select_option = True
+    return create_shipment(order, db)
+
+
+@app.post(
+    "/orders/tpc",
+    response_model=schemas.ShipmentRead,
+    dependencies=[Depends(require_token)],
+    summary="Create FedEx Third Party Consignee shipment",
+)
+def create_tpc_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)):
+    order.third_party_consignee = True
+    return create_shipment(order, db)
+
+
+@app.post(
+    "/returns",
+    response_model=schemas.ShipmentRead,
+    dependencies=[Depends(require_token)],
+    summary="Create FedEx Global Return shipment",
+)
+def create_return_shipment(payload: schemas.ReturnShipmentCreate, db: Session = Depends(get_db)):
+    account = _get_account(db, payload.account_id)
+    warehouse = _get_shipper(db, payload.warehouse_shipper_id)
+    broker = None
+    client = _fedex_client(account, db)
+
+    # Return label: customer is the shipper; warehouse is the recipient
+    customer_shipper = SimpleNamespace(
+        name=payload.customer_name,
+        company=payload.customer_company,
+        person_name=payload.customer_name,
+        phone_number=payload.customer_phone,
+        email=payload.customer_email,
+        street_lines=payload.customer_address,
+        city=payload.customer_city,
+        state_code=payload.customer_state_code,
+        postal_code=payload.customer_postal_code,
+        country_code=payload.customer_country,
+    )
+
+    recipient_payload = {
+        "name": warehouse.person_name,
+        "company": warehouse.company,
+        "phone": warehouse.phone_number,
+        "email": warehouse.email,
+        "address": warehouse.street_lines,
+        "city": warehouse.city,
+        "state_code": warehouse.state_code,
+        "postal_code": warehouse.postal_code,
+        "country": warehouse.country_code,
+    }
+
+    shipment = _create_and_send_shipment(
+        db,
+        client,
+        account=account,
+        shipper=customer_shipper,
+        shipper_record=warehouse,
+        broker=broker,
+        service_type=payload.service_type,
+        order_reference=payload.order_reference,
+        recipient_payload=recipient_payload,
+        weight_kg=payload.weight_kg,
+        customs_required=payload.customs_required,
+        customs_items=payload.customs_items,
+        broker_option=False,
+        third_party_consignee=False,
+        ship_alert_emails=payload.ship_alert_emails,
+        etd_documents=payload.etd_documents,
+        is_return=True,
+        return_reference=payload.return_reference,
     )
 
     return shipment
@@ -262,12 +412,15 @@ def run_test_shipments(payload: schemas.ShipmentTestRequest, db: Session = Depen
                 client,
                 account=account,
                 shipper=shipper,
+                broker=None,
                 service_type=service_type,
                 order_reference=order_reference,
                 recipient_payload=recipient_payload,
                 weight_kg=payload.weight_kg,
                 customs_required=payload.customs_required,
                 customs_items=payload.customs_items,
+                ship_alert_emails=payload.ship_alert_emails,
+                etd_documents=payload.etd_documents,
             )
             results.append(
                 schemas.ShipmentTestResult(
@@ -320,6 +473,32 @@ def download_label(shipment_id: int, db: Session = Depends(get_db)):
     if not shipment.label_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label missing")
     return FileResponse(shipment.label_path, filename=f"label_{shipment_id}.pdf")
+
+
+@app.post(
+    "/tracking",
+    response_model=schemas.TrackingResponse,
+    dependencies=[Depends(require_token)],
+    summary="Track shipment by tracking number",
+)
+def track_shipment(tracking: schemas.TrackingRequest, db: Session = Depends(get_db)):
+    account = _get_account(db, tracking.account_id)
+    client = _fedex_client(account, db)
+    detail = client.track_shipment(tracking.tracking_number)
+    return schemas.TrackingResponse(tracking_number=tracking.tracking_number, raw_detail=detail)
+
+
+@app.post(
+    "/tracking/spod",
+    response_model=schemas.SpodResponse,
+    dependencies=[Depends(require_token)],
+    summary="Request proof of delivery PDF",
+)
+def spod(tracking: schemas.TrackingRequest, db: Session = Depends(get_db)):
+    account = _get_account(db, tracking.account_id)
+    client = _fedex_client(account, db)
+    proof_path = client.request_spod(tracking.tracking_number, SPOD_DIR / f"spod_{tracking.tracking_number}.pdf")
+    return schemas.SpodResponse(tracking_number=tracking.tracking_number, proof_path=proof_path)
 
 
 @app.get("/health")
