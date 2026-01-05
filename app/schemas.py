@@ -2,7 +2,7 @@ from datetime import datetime
 import json
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, validator
 
 
 class AccountBase(BaseModel):
@@ -22,8 +22,7 @@ class AccountRead(AccountBase):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 AllowedService = Literal[
@@ -117,8 +116,7 @@ class ShipmentRead(ShipmentBase):
     broker: Optional["BrokerRead"] = None
     account: AccountRead
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
     @validator("customs_items", pre=True)
     def _parse_customs_items(cls, value):
@@ -213,8 +211,7 @@ class ShipmentTestResult(BaseModel):
     shipment: Optional[ShipmentRead] = None
     error: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ShipmentTestResponse(BaseModel):
@@ -269,8 +266,7 @@ class ShipperRead(ShipperBase):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BrokerBase(BaseModel):
@@ -294,8 +290,7 @@ class BrokerRead(BrokerBase):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TrackingRequest(BaseModel):
@@ -313,4 +308,4 @@ class SpodResponse(BaseModel):
     proof_path: str
 
 
-ShipmentRead.update_forward_refs(ShipperRead=ShipperRead, BrokerRead=BrokerRead, ETDDocument=ETDDocument)
+ShipmentRead.model_rebuild()
