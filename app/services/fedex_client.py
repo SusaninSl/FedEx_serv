@@ -274,6 +274,11 @@ class FedExClient:
     ) -> tuple[str, str]:
         if service_type not in SERVICE_TYPE_MAP:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported service type")
+        if service_type in LTL_SERVICE_TYPE_MAP:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Freight service types must use the LTL shipment endpoint",
+            )
 
         commodity_lines: list[dict] = []
         if include_customs:
@@ -358,12 +363,6 @@ class FedExClient:
             body["requestedShipment"]["returnShipmentDetail"] = {
                 "returnType": "PRINT_RETURN_LABEL",
                 "rma": {"reason": return_reference or "Customer return"},
-            }
-
-        if service_type in {"IPF", "IEF", "REF"}:
-            body["requestedShipment"]["totalWeight"] = {
-                "units": "KG",
-                "value": float(recipient.get("weight", 1)),
             }
 
         special_service_types: list[str] = []
@@ -460,6 +459,129 @@ class FedExClient:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="FedEx tracking missing in response")
 
         return tracking_number, label_path
+
+    def create_ltl_shipment(
+        self,
+        shipment_id: int,
+        destination: str,
+        service_type: FreightServiceType,
+        recipient: dict,
+        shipper,
+        freight_items: list[dict],
+    ) -> tuple[str, str]:
+        if service_type not in LTL_SERVICE_TYPE_MAP:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported freight service type")
+
+        if not freight_items:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="freight_items are required")
+
+        line_items: list[dict] = []
+        total_handling_units = 0
+        for idx, item in enumerate(freight_items, start=1):
+            try:
+                data = item.dict(exclude_none=True)
+            except AttributeError:
+                data = item
+            handling_units = int(data.get("handling_units") or 1)
+            total_handling_units += handling_units
+            line_items.append(
+                {
+                    "id": str(idx),
+                    "freightClass": data.get("freight_class") or "CLASS_050",
+                    "handlingUnits": handling_units,
+                    "pieces": int(data.get("pieces") or 1),
+                    "subPackagingType": data.get("packaging_type") or "PALLET",
+                    "description": data.get("description"),
+                    "weight": {"units": "KG", "value": float(data.get("weight_kg", 1))},
+                }
+            )
+
+        body = {
+            "accountNumber": {"value": self.account.account_number},
+            "requestedShipment": {
+                "shipper": self._shipper_object(shipper),
+                "recipient": {
+                    "contact": {
+                        "personName": recipient.get("name"),
+                        "companyName": recipient.get("company"),
+                        "phoneNumber": recipient.get("phone"),
+                        "emailAddress": recipient.get("email"),
+                    },
+                    "address": {
+                        "streetLines": [recipient.get("address")],
+                        "city": recipient.get("city"),
+                        "stateOrProvinceCode": recipient.get("state_code"),
+                        "postalCode": recipient.get("postal_code"),
+                        "countryCode": recipient.get("country"),
+                    },
+                },
+                "serviceType": LTL_SERVICE_TYPE_MAP[service_type],
+                "pickupType": "USE_SCHEDULED_PICKUP",
+                "shippingChargesPayment": {
+                    "paymentType": "SENDER",
+                    "payor": {"responsibleParty": {"accountNumber": {"value": self.account.account_number}}},
+                },
+                "freightShipmentDetail": {
+                    "totalHandlingUnits": total_handling_units,
+                    "lineItems": line_items,
+                },
+            },
+        }
+
+        url = "/ltl/v1/shipments"
+        response = self._http.post(url, headers=self._auth_headers(), json=body)
+        self._log_interaction(url, "POST", body, response.status_code, response.text)
+
+        if response.status_code not in (status.HTTP_200_OK, status.HTTP_201_CREATED):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"FedEx LTL shipment error: {response.text}",
+            )
+
+        payload = response.json()
+        tracking_number = self._extract_ltl_tracking(payload)
+        document_path = self._save_ltl_document(payload, shipment_id, destination, service_type)
+
+        if not tracking_number:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="FedEx LTL tracking missing in response")
+
+        return tracking_number, document_path
+
+    def _extract_ltl_tracking(self, payload: dict) -> str | None:
+        try:
+            output = payload.get("output", {})
+            if "trackingNumber" in output:
+                return output.get("trackingNumber")
+            shipments = output.get("shipments", [])
+            if shipments:
+                return shipments[0].get("trackingNumber")
+        except Exception:
+            return None
+        return None
+
+    def _save_ltl_document(self, payload: dict, shipment_id: int, destination: str, service_type: str) -> str:
+        doc_bytes: bytes | None = None
+        try:
+            documents = payload.get("output", {}).get("documents", [])
+            if documents:
+                encoded = documents[0].get("content")
+                if encoded:
+                    doc_bytes = base64.b64decode(encoded)
+        except Exception:
+            doc_bytes = None
+
+        LABEL_DIR.mkdir(parents=True, exist_ok=True)
+        doc_path = LABEL_DIR / f"ltl_document_{shipment_id}.pdf"
+
+        if doc_bytes:
+            Path(doc_path).write_bytes(doc_bytes)
+        else:
+            fallback = (
+                f"FedEx LTL Shipment\nID: {shipment_id}\nDestination: {destination}\nService: {service_type}"
+            ).encode()
+            Path(doc_path).write_bytes(fallback)
+
+        return str(doc_path)
 
     def _extract_tracking(self, payload: dict) -> str | None:
         try:
