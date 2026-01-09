@@ -1,6 +1,6 @@
 # FedEx Shipment Gateway
 
-Невеликий сервіс на FastAPI для створення відправок у FedEx (звичайна та фрахт), підтримки кількох акаунтів, збереження PDF-етикеток та отримання попередніх тарифів. Інтеграція використовує публічні FedEx API (`/oauth/token`, `/rate/v1/rates/quotes`, `/ship/v1/shipments`) та зберігає кожен зовнішній запит і відповідь у БД та окремі JSON-файли.
+Невеликий сервіс на FastAPI для створення відправок у FedEx (звичайна та фрахт), підтримки кількох акаунтів, збереження PDF-етикеток та отримання попередніх тарифів. Інтеграція використовує публічні FedEx API (`/oauth/token`, `/rate/v1/rates/quotes`, `/ship/v1/shipments`, `/ltl/v1/shipments`) та зберігає кожен зовнішній запит і відповідь у БД та окремі JSON-файли.
 
 ## Можливості
 - Реєстрація декількох облікових записів FedEx/FedEx Freight.
@@ -11,7 +11,7 @@
 - Логування кожного HTTP-звернення до FedEx (запит/відповідь, статус-код) у таблицю `api_logs` та у файли `storage/logs/*.json`.
 - Збережені брокери (Broker Select Option), відправки з Third Party Consignee (TPC) та Global Returns.
 - FedEx Global Returns (RETURNS), Electronic Trade Documents (ETD) з аплоадом документів, Email Notification (ShipAlert) та SPOD.
-- Фрахтові сервіси FedEx International Priority/ Economy/ Regional Economy Freight (IPF/IEF/REF) і масові технічні тести `/test/shipments` для всіх підтримуваних сервісів.
+- Фрахтові сервіси FedEx International Priority/ Economy/ Regional Economy Freight (IPF/IEF/REF) через LTL endpoint `/ltl/shipments`.
 
 ## Запуск
 1. Створіть віртуальне середовище та встановіть залежності:
@@ -42,7 +42,7 @@
 
 ## Як усе влаштовано
 - `app/main.py` — FastAPI-ендпоїнти (акаунти, склади-відправники, тарифи, створення відправлення, видача етикеток) та middleware для токен-автентифікації.
-- `app/services/fedex_client.py` — робота з FedEx API: OAuth (`/oauth/token`), тарифи (`/rate/v1/rates/quotes`), створення відправлень (`/ship/v1/shipments`), збереження PDF.
+- `app/services/fedex_client.py` — робота з FedEx API: OAuth (`/oauth/token`), тарифи (`/rate/v1/rates/quotes`), стандартні відправлення (`/ship/v1/shipments`), LTL-фрахт (`/ltl/v1/shipments`), збереження PDF.
 - `app/models.py` / `app/database.py` — SQLAlchemy-моделі та сесія (записи акаунтів, замовлень, логів зовнішніх запитів, збережені шляхи до етикеток).
 - `app/schemas.py` — Pydantic-схеми та перелік дозволених сервіс-кодів, що відповідає наданому списку.
 - `app/config.py` — зчитування змінних оточення, які ви виставляєте у `.env` або у своєму хостингу.
@@ -144,7 +144,7 @@
     ```
   - Для розрахунку тарифу FedEx використовуються лише індекс та код країни відправника/одержувача, валюта відповіді — EUR.
 
-- **Створити відправлення**
+- **Створити відправлення (звичайний ship)**
   > Ендпоїнт створення відправлення **не робить запит тарифу**; спочатку за потреби викличте `/rates` і самостійно зафіксуйте ціну.
   ```bash
   curl -X POST "http://localhost:8000/orders?token=super-secret-token" \
@@ -190,6 +190,36 @@
   - Для **FedEx Third Party Consignee (TPC)** використовуйте поле `third_party_consignee: true` або ендпоїнт `/orders/tpc`.
   - `ship_alert_emails` вмикає Email Notification (ShipAlert), масив email-адрес.
   - `etd_documents` — Electronic Trade Documents (FedEx завантажує переданий PDF/документ).
+
+- **Створити LTL-фрахт відправлення (IPF/IEF/REF)**
+  ```bash
+  curl -X POST "http://localhost:8000/ltl/shipments?token=super-secret-token" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "order_reference": "LTL-100",
+      "account_id": 1,
+      "shipper_id": 1,
+      "service_type": "IPF",
+      "recipient_name": "Freight Receiver",
+      "recipient_phone": "+49-30-888888",
+      "recipient_address": "Freight Str. 10",
+      "recipient_city": "Hamburg",
+      "recipient_state_code": "HH",
+      "recipient_postal_code": "20095",
+      "recipient_country": "DE",
+      "freight_items": [
+        {
+          "description": "Pallet 1",
+          "freight_class": "CLASS_050",
+          "weight_kg": 120,
+          "pieces": 1,
+          "handling_units": 1,
+          "packaging_type": "PALLET"
+        }
+      ]
+    }'
+  ```
+  Це окремий LTL-ендпоїнт для фрахту, він використовує FedEx LTL Freight API `/ltl/v1/shipments`.
 
 - **Технічний тест на кілька сервісів** — створює серію відправлень із однаковими відправником/одержувачем, але різними сервісами
   (`FIP`, `IPE`, `FIE`, `RE`, `PO`, `FICP`). До `order_reference_prefix` автоматично додається код сервісу.
@@ -258,13 +288,13 @@
 
 ## Примітки
 - Запит авторизації виконується на `/oauth/token` (grant_type=client_credentials); отриманий токен автоматично кешується.
-- Тарифи беруться з `/rate/v1/rates/quotes`, створення відправки — через `/ship/v1/shipments` із PDF-етикеткою (base64) та збереженням у `storage/labels`.
+- Тарифи беруться з `/rate/v1/rates/quotes`, стандартні відправлення створюються через `/ship/v1/shipments`, фрахтові — через `/ltl/v1/shipments` із збереженням PDF у `storage/labels`.
 - Усі дозволені сервіси: FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF, RETURNS.
 - Поле `price_quote` у відправленнях може бути відсутнім (None), якщо тариф не запитували через `/rates`.
 - У FedEx-запитах для створення відправлення тепер передаються обов'язкові поля: поштовий індекс та штат/область одержувача, телефон, `mergeLabelDocOption=LABELS_ONLY`, `labelSpecification.imageType=PDF`; відправники (shipper) зберігаються окремо і підставляються в кожен запит.
 - До `requestedShipment.customsClearanceDetail` автоматично додається комерційний інвойс, який формує FedEx, та перелік товарів з описом (quantity/price/weight за бажанням). Якщо не передати `customs_items`, у запит піде базова позиція "General Goods" з вагою відправлення. Для відправлень без митного оформлення передайте `customs_required: 0`, тоді `customsClearanceDetail` не включатиметься в запит.
 - Для International Broker Select Option використовуйте `broker_id` + `broker_select_option`; для Third Party Consignee — `third_party_consignee`; для повернень — ендпоїнт `/returns` (код сервісу `RETURNS`).
-- Freight-сервіси IPF/IEF/REF підтримуються стандартними запитами `/orders` і `/rates`; у FedEx-запиті автоматично додається `totalWeight`.
+- Freight-сервіси IPF/IEF/REF створюються через окремий LTL-ендпоїнт `/ltl/shipments` (FedEx LTL Freight API), а не через `/orders`.
 - Дані зберігаються у SQLite, тому резервуйте файл `data/app.db` при продакшн-розгортанні.
 
 ## Швидкий старт на Windows 11 у Visual Studio Code

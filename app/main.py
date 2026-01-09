@@ -116,6 +116,7 @@ def _create_and_send_shipment(
     weight_kg: float,
     customs_required: bool,
     customs_items: list[schemas.CommodityItem] | None,
+    freight_items: list[schemas.FreightLineItem] | None = None,
     broker_option: bool = False,
     third_party_consignee: bool = False,
     ship_alert_emails: list[str] | None = None,
@@ -128,6 +129,11 @@ def _create_and_send_shipment(
     if customs_items:
         customs_serialized = json.dumps(
             [item.dict(exclude_none=True) for item in customs_items], ensure_ascii=False
+        )
+    freight_serialized = None
+    if freight_items:
+        freight_serialized = json.dumps(
+            [item.dict(exclude_none=True) for item in freight_items], ensure_ascii=False
         )
 
     shipment = Shipment(
@@ -147,6 +153,7 @@ def _create_and_send_shipment(
         recipient_country=recipient_payload.get("country"),
         weight_kg=weight_kg,
         customs_items=customs_serialized,
+        freight_items=freight_serialized,
         customs_required=customs_required,
         special_services=json.dumps(
             {
@@ -213,6 +220,88 @@ def _create_and_send_shipment(
     return shipment
 
 
+def _create_and_send_ltl_shipment(
+    db: Session,
+    client: FedExClient,
+    *,
+    account: Account,
+    shipper,
+    shipper_record: Shipper,
+    service_type: schemas.FreightService,
+    order_reference: str,
+    recipient_payload: dict,
+    freight_items: list[schemas.FreightLineItem],
+) -> Shipment:
+    freight_serialized = json.dumps(
+        [item.dict(exclude_none=True) for item in freight_items], ensure_ascii=False
+    )
+    total_weight = sum(item.weight_kg for item in freight_items)
+
+    shipment = Shipment(
+        order_reference=order_reference,
+        account_id=account.id,
+        shipper_id=shipper_record.id,
+        broker_id=None,
+        service_type=service_type,
+        recipient_name=recipient_payload.get("name"),
+        recipient_company=recipient_payload.get("company"),
+        recipient_phone=recipient_payload.get("phone"),
+        recipient_email=recipient_payload.get("email"),
+        recipient_address=recipient_payload.get("address"),
+        recipient_city=recipient_payload.get("city"),
+        recipient_state_code=recipient_payload.get("state_code"),
+        recipient_postal_code=recipient_payload.get("postal_code"),
+        recipient_country=recipient_payload.get("country"),
+        weight_kg=total_weight,
+        freight_items=freight_serialized,
+        customs_items=None,
+        customs_required=False,
+        special_services=None,
+        etd_documents=None,
+        ship_alert_emails=None,
+        is_return=False,
+        return_reference=None,
+        price_quote=None,
+        tracking_number="",
+        label_path="",
+    )
+    db.add(shipment)
+    db.commit()
+    db.refresh(shipment)
+
+    try:
+        tracking_number, document_path = client.create_ltl_shipment(
+            shipment_id=shipment.id,
+            destination=f"{shipment.recipient_city}, {shipment.recipient_country}",
+            service_type=service_type,
+            recipient={
+                "name": shipment.recipient_name,
+                "company": shipment.recipient_company,
+                "phone": shipment.recipient_phone,
+                "email": shipment.recipient_email,
+                "address": shipment.recipient_address,
+                "city": shipment.recipient_city,
+                "state_code": shipment.recipient_state_code,
+                "postal_code": shipment.recipient_postal_code,
+                "country": shipment.recipient_country,
+            },
+            shipper=shipper,
+            freight_items=freight_items,
+        )
+    except HTTPException:
+        shipment.status = "error"
+        db.add(shipment)
+        db.commit()
+        raise
+
+    shipment.tracking_number = tracking_number
+    shipment.label_path = document_path
+    db.add(shipment)
+    db.commit()
+    db.refresh(shipment)
+    return shipment
+
+
 @app.post(
     "/rates",
     response_model=schemas.RateListResponse | schemas.RateResponse,
@@ -251,6 +340,11 @@ def get_rate(rate_request: schemas.RateRequest, db: Session = Depends(get_db)):
 
 @app.post("/orders", response_model=schemas.ShipmentRead, dependencies=[Depends(require_token)])
 def create_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)):
+    if order.freight_items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Freight items must be submitted via /ltl/shipments",
+        )
     account = _get_account(db, order.account_id)
     shipper = _get_shipper(db, order.shipper_id)
     broker = _get_broker(db, order.broker_id)
@@ -313,6 +407,44 @@ def create_bso_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get
 def create_tpc_shipment(order: schemas.ShipmentCreate, db: Session = Depends(get_db)):
     order.third_party_consignee = True
     return create_shipment(order, db)
+
+
+@app.post(
+    "/ltl/shipments",
+    response_model=schemas.ShipmentRead,
+    dependencies=[Depends(require_token)],
+    summary="Create LTL freight shipment",
+)
+def create_ltl_shipment(order: schemas.LtlShipmentCreate, db: Session = Depends(get_db)):
+    account = _get_account(db, order.account_id)
+    shipper = _get_shipper(db, order.shipper_id)
+    client = _fedex_client(account, db)
+
+    recipient_payload = {
+        "name": order.recipient_name,
+        "company": order.recipient_company,
+        "phone": order.recipient_phone,
+        "email": order.recipient_email,
+        "address": order.recipient_address,
+        "city": order.recipient_city,
+        "state_code": order.recipient_state_code,
+        "postal_code": order.recipient_postal_code,
+        "country": order.recipient_country,
+    }
+
+    shipment = _create_and_send_ltl_shipment(
+        db,
+        client,
+        account=account,
+        shipper=shipper,
+        shipper_record=shipper,
+        service_type=order.service_type,
+        order_reference=order.order_reference,
+        recipient_payload=recipient_payload,
+        freight_items=order.freight_items,
+    )
+
+    return shipment
 
 
 @app.post(
@@ -384,9 +516,6 @@ TEST_SERVICE_TYPES: list[schemas.AllowedService] = [
     "RE",
     "PO",
     "FICP",
-    "IPF",
-    "IEF",
-    "REF",
 ]
 
 

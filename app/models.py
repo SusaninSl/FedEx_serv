@@ -79,6 +79,7 @@ class Shipment(Base):
     recipient_country = Column(String(100), nullable=False)
     weight_kg = Column(Float, nullable=False)
     customs_items = Column(Text, nullable=True)
+    freight_items = Column(Text, nullable=True)
     customs_required = Column(Boolean, default=True)
     special_services = Column(Text, nullable=True)
     etd_documents = Column(Text, nullable=True)

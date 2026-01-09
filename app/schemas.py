@@ -38,12 +38,33 @@ AllowedService = Literal[
     "RETURNS",  # FedEx Global Returns
 ]
 
+FreightService = Literal[
+    "IPF",  # FedEx International Priority Freight
+    "IEF",  # FedEx International Economy Freight
+    "REF",  # FedEx Regional Economy Freight
+]
+
 
 class CommodityItem(BaseModel):
     description: str
     quantity: Optional[float] = Field(None, description="Quantity of the item")
     price: Optional[float] = Field(None, description="Unit price in sender currency")
     weight_kg: Optional[float] = Field(None, description="Item weight in KG")
+
+
+class FreightLineItem(BaseModel):
+    description: str
+    freight_class: Optional[str] = Field(
+        None,
+        description="Freight class, e.g. CLASS_050. Defaults to CLASS_050 if omitted",
+    )
+    weight_kg: float = Field(..., description="Line item weight in KG")
+    pieces: Optional[int] = Field(None, description="Total pieces for the line item")
+    handling_units: Optional[int] = Field(None, description="Handling units for the line item")
+    packaging_type: Optional[str] = Field(
+        None,
+        description="Sub packaging type, e.g. PALLET",
+    )
 
 
 class ETDDocument(BaseModel):
@@ -59,7 +80,10 @@ class ShipmentBase(BaseModel):
     broker_id: Optional[int] = Field(None, description="Broker to use for BSO")
     service_type: AllowedService = Field(
         ...,
-        description="FedEx service code (FIP, IPE, FIE, RE, PO, FICP, IPF, IEF, REF, RETURNS)",
+        description=(
+            "FedEx service code (FIP, IPE, FIE, RE, PO, FICP, RETURNS). "
+            "Freight codes (IPF/IEF/REF) must use the LTL endpoint."
+        ),
     )
     recipient_name: str
     recipient_company: Optional[str] = None
@@ -96,10 +120,34 @@ class ShipmentBase(BaseModel):
             "Commodity lines for customs; description required, quantity/price/weight optional"
         ),
     )
+    freight_items: Optional[List[FreightLineItem]] = Field(
+        None,
+        description="Freight line items for LTL shipments (description + weight required)",
+    )
 
 
 class ShipmentCreate(ShipmentBase):
     pass
+
+
+class LtlShipmentCreate(BaseModel):
+    order_reference: str
+    account_id: int
+    shipper_id: int
+    service_type: FreightService = Field(
+        ...,
+        description="Freight service code (IPF, IEF, REF) for LTL shipments",
+    )
+    recipient_name: str
+    recipient_company: Optional[str] = None
+    recipient_phone: str
+    recipient_email: Optional[str] = None
+    recipient_address: str
+    recipient_city: str
+    recipient_state_code: str
+    recipient_postal_code: str
+    recipient_country: str
+    freight_items: List[FreightLineItem]
 
 
 class ShipmentRead(ShipmentBase):
@@ -118,6 +166,17 @@ class ShipmentRead(ShipmentBase):
 
     @validator("customs_items", pre=True)
     def _parse_customs_items(cls, value):
+        if value is None:
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return None
+        return value
+
+    @validator("freight_items", pre=True)
+    def _parse_freight_items(cls, value):
         if value is None:
             return value
         if isinstance(value, str):
