@@ -36,12 +36,8 @@ AllowedService = Literal[
     "IEF",  # FedEx International Economy Freight
     "REF",  # FedEx Regional Economy Freight
     "RETURNS",  # FedEx Global Returns
-]
-
-FreightService = Literal[
-    "IPF",  # FedEx International Priority Freight
-    "IEF",  # FedEx International Economy Freight
-    "REF",  # FedEx Regional Economy Freight
+    "FIRST",
+    "FP"
 ]
 
 
@@ -81,7 +77,7 @@ class ShipmentBase(BaseModel):
     service_type: AllowedService = Field(
         ...,
         description=(
-            "FedEx service code (FIP, IPE, FIE, RE, PO, FICP, RETURNS). "
+            "FedEx service code (FIP, IPE, FIE, RE, PO, FICP, RETURNS), FIRST, FP "
             "Freight codes (IPF/IEF/REF) must use the LTL endpoint."
         ),
     )
